@@ -4,22 +4,44 @@
 (enable-console-print!)
 
 (defprotocol Usable
-  (use [this battle])
-  (use-text [this battle]))
+  (use [this user battle])
+  (use-text [this user battle]))
 
-(defrecord Move [name description power type]
-  Usable
-  (use [this battle] battle)
-  (use-text [this battle] nil))
+(defn activepmon [user battle]
+  (first (:team (get battle user))))
+
+(defn other-user [user]
+  (if (= user :player) :rival :player))
 
 (defmulti  execute-move #(:type %1))
-(defmethod execute-move :attack [this battle] battle)
-(defmethod execute-move :buff   [this battle] battle)
-(defmethod execute-move :debuff [this battle] battle)
+(defrecord Move [name description power type]
+  Usable
+  (use [this user battle]
+    (println battle)
+    (if (not=  0 (:hp (activepmon user battle)))
+      (execute-move this user battle)
+      battle))
+  (use-text [this user battle]
+    (str (:name user) " used " (:name this) ".")))
+
+(defmethod execute-move :attack [this user battle]
+  (let [thismon  (activepmon user battle)
+        othermon (activepmon (other-user user) battle)
+        atk (:attack thismon)
+        hp  (:hp othermon)
+        pwr (:power this)
+        new-hp (- hp (* pwr atk))
+        new-othermon (assoc othermon :hp new-hp)
+        old-other-user (get battle (other-user user))
+        [_ & other-rest-team] (:team old-other-user)
+        new-team (cons new-othermon other-rest-team)]
+    (assoc-in battle [(other-user user) :team] new-team)))
+(defmethod execute-move :buff   [this user battle] battle)
+(defmethod execute-move :debuff [this user battle] battle)
 
 (def moves
   {:tackle (map->Move
-            {:name        "Tackle"
+`            {:name        "Tackle"
              :description "Tackles the opponent."
              :power       1
              :type        :attack})
@@ -130,8 +152,8 @@
      move-1 move-2
      move-3 move-4]
   Usable
-  (use [this battle] battle)
-  (use-text [this battle] nil))
+  (use [this user battle] battle)
+  (use-text [this user battle] nil))
 
 (def pokemon
   {:pikachu    (map->Pokemon
@@ -167,16 +189,16 @@
                  :move-3  (:tackle moves)
                  :move-4  (:string-shot moves)})
 
-   :evee       (map->Pokemon
+   :eevee       (map->Pokemon
                 {:name    "Eevee"
                  :sprite  "eevee.png"
                  :hp      25
                  :attack  12
                  :speed   10
-                 :move-1  (:growl moves)
+                 :move-1  (:tackle moves)
                  :move-2  (:tail-whip moves)
                  :move-3  (:bite moves)
-                 :move-4  (:tackle moves)})
+                 :move-4  (:growl moves)})
 
    :charmander (map->Pokemon
                 {:name    "charmander"
@@ -242,19 +264,85 @@
 (def top-style
   {:font-family "Helvetica Neue"})
 
+(defonce app-state (atom game))
+
+(defn active-playermon [state] (-> state :player :team first))
+(defn active-rivalmon  [state] (-> state :rival :team first))
+
+(defn menu-box [& e]
+  [:div
+   {:style text-bottom-style}
+   (conj [:div {:style inner-box}] e)])
+
 (defmulti  render-ui :stage)
 
 (defmethod render-ui nil [state]
-  [:div
-   {:style text-bottom-style}
-   [:div {:style inner-box}
-    (str (-> state :rival :name) " wants to battle!")]])
+  (menu-box
+   [:div (str (-> state :rival :name) " wants to battle!")]
+   [:button
+    {:on-click
+     (fn []
+       (swap! app-state #(assoc % :stage :select-action)))}
+    "Start Fight"]))
 
 (defmethod render-ui :select-action [state]
-  [:div])
+  (menu-box
+   [:button
+    {:on-click
+     (fn []
+       (swap! app-state #(assoc % :stage :select-move)))}
+    "Select Move"]
+   [:button
+    {:on-click
+     (fn []
+       (swap! app-state #(assoc % :stage :select-switch)))}
+    "Switch Pokemon"]))
+
+(defn build-turn [state move]
+  (let [rmon (active-rivalmon state)
+        pmon (active-playermon state)]
+    (if (> (:speed pmon) (:speed rmon))
+      [[:player move] [:rival (:move-1 rmon)]]
+      [[:rival (:move-1 rmon)] [:player move]])))
+
+(defn take-turn [move swap?]
+  (fn [state]
+    (if swap?
+      state
+      (let [turns (build-turn state move)]
+        (reduce (fn [battle [user move]]
+                  (use move user battle))
+                state
+                turns)))))
 
 (defmethod render-ui :select-move [state]
-  [:div])
+  (let [mon (active-playermon state)]
+    (menu-box
+     [:button
+      {:on-click
+       (fn []
+         (swap! app-state (take-turn (:move-1 mon) false)))}
+      (:name (:move-1 mon))]
+     [:button
+      {:on-click
+       (fn []
+         (swap! app-state (take-turn (:move-2 mon) false)))}
+      (:name (:move-2 mon))]
+     [:button
+      {:on-click
+       (fn []
+         (swap! app-state (take-turn (:move-3 mon) false)))}
+      (:name (:move-3 mon))]
+     [:button
+      {:on-click
+       (fn []
+         (swap! app-state (take-turn (:move-4 mon) false)))}
+      (:name (:move-4 mon))]
+     [:button
+      {:on-click
+       (fn []
+         (swap! app-state #(assoc % :stage :select-action)))}
+      "Back"])))
 
 (defmethod render-ui :select-switch [state]
   [:div])
@@ -265,7 +353,6 @@
 (defn render-pokemon [state]
   [:div])
 
-(defonce app-state (atom game))
 (defn lispmon-battle []
   (let [state @app-state]
     [:div
