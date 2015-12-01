@@ -1,10 +1,8 @@
 # lispmon
 
-FIXME: Write a one-line description of your library/project.
-
-## Overview
-
-FIXME: Write a paragraph about the library/project and highlight its goals.
+Project for my
+[Records, Protocols, Multimethods](http://sisyphus.rocks/talks/protocols-multimethods-records)
+talk at RC.
 
 ## Setup
 
